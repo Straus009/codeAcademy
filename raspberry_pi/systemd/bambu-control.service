@@ -1,0 +1,17 @@
+[Unit]
+Description=Panel web para cerramiento Bambu Lab
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/bambu-control/raspberry_pi
+Environment="ARDUINO_PORT=/dev/ttyACM0"
+Environment="FLASK_SECRET=pon-aqui-una-clave"
+ExecStart=/opt/bambu-control/raspberry_pi/.venv/bin/python app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
