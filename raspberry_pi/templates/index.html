@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Control de cerramiento Bambu Lab</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-+l2vlA38nSxrdbidKfnUSsfx8bVsgcF6edS5nl2xe50Tzw9uQWGWpZ6YG1ChB7i2" crossorigin="anonymous"></script>
+  </head>
+  <body>
+    <main class="layout">
+      <header class="layout__header">
+        <h1>Monitoreo del cerramiento</h1>
+        <p>Controla bombas, ventiladores y calefactores conectados al Arduino desde tu navegador.</p>
+      </header>
+      <section class="card">
+        <h2>Lecturas ambientales</h2>
+        <div class="metrics">
+          <div class="metric">
+            <span class="metric__label">Temperatura</span>
+            <span class="metric__value" id="temperature">-- °C</span>
+          </div>
+          <div class="metric">
+            <span class="metric__label">Humedad</span>
+            <span class="metric__value" id="humidity">-- %</span>
+          </div>
+        </div>
+        <p class="timestamp">Última actualización: <span id="last-update">sin datos</span></p>
+      </section>
+      <section class="card">
+        <h2>Actuadores</h2>
+        <div class="toggles">
+          <button class="toggle" id="toggle-pumps" data-state="off">Encender bombas</button>
+          <button class="toggle" id="toggle-ventilation" data-state="off">Encender ventilación</button>
+        </div>
+        <p class="status" id="status-text"></p>
+      </section>
+      <section class="card">
+        <h2>Actividad</h2>
+        <pre class="log" id="event-log">Esperando datos del Arduino...</pre>
+      </section>
+    </main>
+    <script>
+      const temperature = document.getElementById('temperature');
+      const humidity = document.getElementById('humidity');
+      const lastUpdate = document.getElementById('last-update');
+      const togglePumps = document.getElementById('toggle-pumps');
+      const toggleVentilation = document.getElementById('toggle-ventilation');
+      const statusText = document.getElementById('status-text');
+      const logElement = document.getElementById('event-log');
+
+      const socket = io();
+
+      function formatTimestamp(epoch) {
+        if (!epoch) {
+          return 'sin datos';
+        }
+        const date = new Date(epoch * 1000);
+        return date.toLocaleString();
+      }
+
+      function updateButton(button, isActive, labelOn, labelOff) {
+        button.dataset.state = isActive ? 'on' : 'off';
+        button.textContent = isActive ? labelOff : labelOn;
+        button.classList.toggle('toggle--active', isActive);
+      }
+
+      function appendLog(message) {
+        const current = logElement.textContent === 'Esperando datos del Arduino...' ? '' : logElement.textContent + '\n';
+        logElement.textContent = `${current}${new Date().toLocaleTimeString()} · ${message}`.trim();
+        logElement.scrollTop = logElement.scrollHeight;
+      }
+
+      function renderState(data) {
+        if (data.temperature !== null && data.temperature !== undefined) {
+          temperature.textContent = `${data.temperature.toFixed(1)} °C`;
+        }
+        if (data.humidity !== null && data.humidity !== undefined) {
+          humidity.textContent = `${data.humidity.toFixed(1)} %`;
+        }
+        lastUpdate.textContent = formatTimestamp(data.last_update);
+        updateButton(togglePumps, data.pumps, 'Encender bombas', 'Apagar bombas');
+        updateButton(toggleVentilation, data.ventilation, 'Encender ventilación', 'Apagar ventilación');
+        statusText.textContent = `Último origen de datos: ${data.last_origin}`;
+        appendLog(`Lectura (${data.last_origin}): bombas=${data.pumps ? 'ON' : 'OFF'}, ventilación=${data.ventilation ? 'ON' : 'OFF'}, ` +
+          `temperatura=${data.temperature ?? '---'}°C, humedad=${data.humidity ?? '---'}%`);
+      }
+
+      function sendToggle(endpoint, button) {
+        const desired = button.dataset.state !== 'on';
+        fetch(`/api/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: desired })
+        })
+          .then(response => response.json())
+          .then(data => {
+            if (data.error) {
+              appendLog(`Error: ${data.error}`);
+              return;
+            }
+            renderState(data);
+          })
+          .catch(err => appendLog(`No se pudo enviar el comando: ${err}`));
+      }
+
+      togglePumps.addEventListener('click', () => sendToggle('pumps', togglePumps));
+      toggleVentilation.addEventListener('click', () => sendToggle('ventilation', toggleVentilation));
+
+      socket.on('state', (payload) => {
+        renderState(payload);
+      });
+
+      fetch('/api/state')
+        .then(response => response.json())
+        .then(data => renderState(data))
+        .catch(err => appendLog(`Error inicializando estado: ${err}`));
+    </script>
+  </body>
+</html>
